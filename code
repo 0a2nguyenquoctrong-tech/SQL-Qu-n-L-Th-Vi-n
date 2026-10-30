@@ -1,0 +1,820 @@
+CREATE DATABASE QuanLyThuVienTPHCM;GO
+USE QuanLyThuVienTPHCM;GO
+-- 1. Bảng Nhân Viên (Thủ thư, quản lý)
+CREATE TABLE NhanVien (
+    MaNhanVien INT IDENTITY(1,1) PRIMARY KEY,
+    HoTen NVARCHAR(100) NOT NULL,
+    Phai NVARCHAR(10) CHECK (Phai IN (N'Nam', N'Nữ', N'Khác')),
+    NgaySinh DATE NULL,
+    ChucVu NVARCHAR(50) NOT NULL,
+    SoDienThoai VARCHAR(15) UNIQUE NOT NULL,
+    Email VARCHAR(100) UNIQUE NULL,
+    TenDangNhap VARCHAR(50) UNIQUE NOT NULL,
+    MatKhau VARCHAR(255) NOT NULL,
+    TrangThai BIT DEFAULT 1 -- 1: Đang làm việc, 0: Nghỉ việc
+);
+GO
+
+-- 2. Bảng Thể Loại Sách
+CREATE TABLE TheLoai (
+    MaTheLoai INT IDENTITY(1,1) PRIMARY KEY,
+    TenTheLoai NVARCHAR(100) NOT NULL,
+    MoTa NVARCHAR(255) NULL
+);
+GO
+
+-- 3. Bảng Nhà Xuất Bản
+CREATE TABLE NhaXuatBan (
+    MaNhaXuatBan INT IDENTITY(1,1) PRIMARY KEY,
+    TenNhaXuatBan NVARCHAR(150) NOT NULL,
+    DiaChi NVARCHAR(255) NULL,
+    SoDienThoai VARCHAR(15) NULL
+);
+GO
+
+-- 4. Bảng Tác Giả
+CREATE TABLE TacGia (
+    MaTacGia INT IDENTITY(1,1) PRIMARY KEY,
+    TenTacGia NVARCHAR(100) NOT NULL,
+    TieuSu NVARCHAR(MAX) NULL
+);
+GO
+
+-- 5. Bảng Đầu Sách (Thông tin chung về ấn phẩm)
+CREATE TABLE DauSach (
+    MaDauSach INT IDENTITY(1,1) PRIMARY KEY,
+    TenDauSach NVARCHAR(200) NOT NULL,
+    MaTheLoai INT NULL,
+    MaNhaXuatBan INT NULL,
+    NamXuatBan INT CHECK (NamXuatBan <= YEAR(GETDATE())),
+    CONSTRAINT FK_DauSach_TheLoai FOREIGN KEY (MaTheLoai) REFERENCES TheLoai(MaTheLoai) ON DELETE SET NULL,
+    CONSTRAINT FK_DauSach_NhaXuatBan FOREIGN KEY (MaNhaXuatBan) REFERENCES NhaXuatBan(MaNhaXuatBan) ON DELETE SET NULL
+);
+GO
+
+-- 6. Bảng Liên Kết Đầu Sách - Tác Giả (Quan hệ N - N)
+CREATE TABLE Sach_TacGia (
+    MaDauSach INT NOT NULL,
+    MaTacGia INT NOT NULL,
+    PRIMARY KEY (MaDauSach, MaTacGia),
+    CONSTRAINT FK_SachTacGia_DauSach FOREIGN KEY (MaDauSach) REFERENCES DauSach(MaDauSach) ON DELETE CASCADE,
+    CONSTRAINT FK_SachTacGia_TacGia FOREIGN KEY (MaTacGia) REFERENCES TacGia(MaTacGia) ON DELETE CASCADE
+);
+GO
+
+-- 7. Bảng Cuốn Sách Vật Lý (Các bản sao cụ thể của từng đầu sách)
+CREATE TABLE CuonSach (
+    MaCuonSach INT IDENTITY(1,1) PRIMARY KEY,
+    MaDauSach INT NOT NULL,
+    TinhTrang NVARCHAR(100) DEFAULT N'Mới', -- Mới, Cũ, Hỏng nhẹ, Cần thanh lý...
+    TrangThaiMuon NVARCHAR(50) DEFAULT N'Có sẵn' 
+        CHECK (TrangThaiMuon IN (N'Có sẵn', N'Đang mượn', N'Đã mất', N'Bảo trì')),
+    CONSTRAINT FK_CuonSach_DauSach FOREIGN KEY (MaDauSach) REFERENCES DauSach(MaDauSach) ON DELETE CASCADE
+);
+GO
+
+-- 8. Bảng Độc Giả (Thông tin cá nhân)
+CREATE TABLE DocGia (
+    MaDocGia INT IDENTITY(1,1) PRIMARY KEY,
+    HoTen NVARCHAR(100) NOT NULL,
+    NgaySinh DATE NULL,
+    GioiTinh NVARCHAR(10) CHECK (GioiTinh IN (N'Nam', N'Nữ', N'Khác')),
+    DiaChi NVARCHAR(255) NULL,
+    SoDienThoai VARCHAR(15) UNIQUE NOT NULL,
+    Email VARCHAR(100) UNIQUE NULL
+);
+GO
+
+-- 9. Bảng Thẻ Độc Giả (1 độc giả có thể có các kỳ gia hạn/cấp lại thẻ)
+CREATE TABLE TheDocGia (
+    MaThe INT IDENTITY(1,1) PRIMARY KEY,
+    MaDocGia INT NOT NULL,
+    NgayCap DATE DEFAULT CAST(GETDATE() AS DATE),
+    NgayHetHan DATE NOT NULL,
+    LePhi DECIMAL(18,2) DEFAULT 0,
+    TrangThai BIT DEFAULT 1, -- 1: Đang hoạt động, 0: Khóa/Hết hạn
+    CONSTRAINT FK_TheDocGia_DocGia FOREIGN KEY (MaDocGia) REFERENCES DocGia(MaDocGia) ON DELETE CASCADE,
+    CONSTRAINT CK_NgayHetHan CHECK (NgayHetHan > NgayCap)
+);
+GO
+
+-- 10. Bảng Phiếu Mượn (Được lập qua Thẻ Độc Giả và Nhân Viên xử lý)
+CREATE TABLE PhieuMuon (
+    MaPhieuMuon INT IDENTITY(1,1) PRIMARY KEY,
+    MaThe INT NOT NULL,
+    MaNhanVien INT NOT NULL,
+    NgayMuon DATETIME DEFAULT GETDATE(),
+    HanTra DATETIME NOT NULL,
+    TrangThai NVARCHAR(50) DEFAULT N'Đang mượn' 
+        CHECK (TrangThai IN (N'Đang mượn', N'Đã trả đủ', N'Quá hạn')),
+    CONSTRAINT FK_PhieuMuon_TheDocGia FOREIGN KEY (MaThe) REFERENCES TheDocGia(MaThe),
+    CONSTRAINT FK_PhieuMuon_NhanVien FOREIGN KEY (MaNhanVien) REFERENCES NhanVien(MaNhanVien),
+    CONSTRAINT CK_HanTra CHECK (HanTra >= NgayMuon)
+);
+GO
+
+-- 11. Bảng Chi Tiết Phiếu Mượn (Nhiều cuốn sách trong 1 lần mượn)
+CREATE TABLE ChiTietPhieuMuon (
+    MaChiTiet INT IDENTITY(1,1) PRIMARY KEY,
+    MaPhieuMuon INT NOT NULL,
+    MaCuonSach INT NOT NULL,
+    NgayTraThucTe DATETIME NULL,
+    TinhTrangSachKhiMuon NVARCHAR(100) DEFAULT N'Nguyên vẹn',
+    TinhTrangSachKhiTra NVARCHAR(100) NULL,
+    CONSTRAINT FK_CTPM_PhieuMuon FOREIGN KEY (MaPhieuMuon) REFERENCES PhieuMuon(MaPhieuMuon) ON DELETE CASCADE,
+    CONSTRAINT FK_CTPM_CuonSach FOREIGN KEY (MaCuonSach) REFERENCES CuonSach(MaCuonSach),
+    CONSTRAINT UQ_PhieuMuon_CuonSach UNIQUE (MaPhieuMuon, MaCuonSach)
+);
+GO
+
+-- 12. Bảng Phiếu Phạt (Lập khi phiếu mượn phát sinh vi phạm)
+CREATE TABLE PhieuPhat (
+    MaPhieuPhat INT IDENTITY(1,1) PRIMARY KEY,
+    MaPhieuMuon INT NOT NULL,
+    MaNhanVien INT NOT NULL,
+    NgayLap DATETIME DEFAULT GETDATE(),
+    NoiDungPhat NVARCHAR(MAX) NOT NULL, -- Diễn giải: Trễ hạn, làm mất sách mã X, làm hỏng bìa...
+    TongTienPhat DECIMAL(18,2) DEFAULT 0 CHECK (TongTienPhat >= 0),
+    TrangThaiThanhToan BIT DEFAULT 0, -- 0: Chưa nộp, 1: Đã nộp
+    CONSTRAINT FK_PhieuPhat_PhieuMuon FOREIGN KEY (MaPhieuMuon) REFERENCES PhieuMuon(MaPhieuMuon),
+    CONSTRAINT FK_PhieuPhat_NhanVien FOREIGN KEY (MaNhanVien) REFERENCES NhanVien(MaNhanVien)
+);
+GO
+-- 1. Nhân viên
+INSERT INTO NhanVien (HoTen, Phai, NgaySinh, ChucVu, SoDienThoai, Email, TenDangNhap, MatKhau, TrangThai) VALUES
+(N'Nguyễn Văn An', N'Nam', '1988-03-15', N'Thủ thư trưởng', '0901234567', 'an.nguyen@thuvien.vn', 'nv_an', 'hashed_pwd_1', 1),
+(N'Trần Thị Bích', N'Nữ', '1995-07-22', N'Thủ thư', '0912345678', 'bich.tran@thuvien.vn', 'nv_bich', 'hashed_pwd_2', 1),
+(N'Lê Hoàng Nam', N'Nam', '1992-11-05', N'Thủ thư kiểm kê', '0923456789', 'nam.le@thuvien.vn', 'nv_nam', 'hashed_pwd_3', 1),
+(N'Phạm Minh Thư', N'Nữ', '1999-01-30', N'Nhân viên hỗ trợ', '0934567890', 'thu.pham@thuvien.vn', 'nv_thu', 'hashed_pwd_4', 1);
+
+-- 2. Thể loại
+INSERT INTO TheLoai (TenTheLoai, MoTa) VALUES
+(N'Công nghệ thông tin', N'Sách lập trình, khoa học máy tính, AI và cơ sở dữ liệu'),
+(N'Văn học cổ điển', N'Các tác phẩm tiểu thuyết kinh điển trong và ngoài nước'),
+(N'Kinh tế - Kinh doanh', N'Sách đầu tư, quản trị tài chính, khởi nghiệp'),
+(N'Khoa học đời sống', N'Sinh học, y học thường thức, tâm lý học');
+
+-- 3. Nhà xuất bản
+INSERT INTO NhaXuatBan (TenNhaXuatBan, DiaChi, SoDienThoai) VALUES
+(N'NXB Trẻ', N'161B Lý Chính Thắng, Q.3, TP.HCM', '02839316289'),
+(N'NXB Kim Đồng', N'248 Cống Quỳnh, Q.1, TP.HCM', '02839250100'),
+(N'NXB Tổng hợp TP.HCM', N'62 Nguyễn Thị Minh Khai, Q.1, TP.HCM', '02838225340'),
+(N'NXB Lao Động', N'175 Giảng Võ, Đống Đa, Hà Nội', '02438515380');
+
+-- 4. Tác giả
+INSERT INTO TacGia (TenTacGia, TieuSu) VALUES
+(N'Nguyễn Nhật Ánh', N'Nhà văn nổi tiếng của thiếu nhi và thanh thiếu niên Việt Nam'),
+(N'Robert C. Martin', N'Chuyên gia phần mềm thế giới, đồng tác giả Agile Manifesto'),
+(N'Morgan Housel', N'Chuyên gia tài chính đối tác tại The Collaborative Fund'),
+(N'Dale Carnegie', N'Tác giả và diễn giả nổi tiếng người Mỹ về nghệ thuật giao tiếp');
+
+-- 5. Đầu sách
+INSERT INTO DauSach (TenDauSach, MaTheLoai, MaNhaXuatBan, NamXuatBan) VALUES
+(N'Mắt Biếc', 2, 1, 2019),
+(N'Clean Code - Mã Sạch', 1, 4, 2020),
+(N'Tâm Lý Học Về Tiền', 3, 3, 2021),
+(N'Đắc Nhân Tâm', 4, 1, 2018);
+
+-- 6. Liên kết Sách - Tác giả
+INSERT INTO Sach_TacGia (MaDauSach, MaTacGia) VALUES
+(1, 1),
+(2, 2),
+(3, 3),
+(4, 4);
+
+-- 7. Cuốn sách cụ thể
+INSERT INTO CuonSach (MaDauSach, TinhTrang, TrangThaiMuon) VALUES
+(1, N'Mới', N'Có sẵn'),
+(1, N'Cũ', N'Đang mượn'),
+(2, N'Mới', N'Có sẵn'),
+(2, N'Mới', N'Đang mượn'),
+(3, N'Mới', N'Có sẵn'),
+(3, N'Mới', N'Đang mượn'),
+(4, N'Cũ', N'Có sẵn'),
+(4, N'Mới', N'Có sẵn');
+
+-- 8. Độc giả
+INSERT INTO DocGia (HoTen, NgaySinh, GioiTinh, DiaChi, SoDienThoai, Email) VALUES
+(N'Võ Thành Long', '2001-04-12', N'Nam', N'Quận 10, TP.HCM', '0987654321', 'long.vo@gmail.com'),
+(N'Đỗ Mai Phương', '1998-09-20', N'Nữ', N'Bình Thạnh, TP.HCM', '0978123456', 'phuong.do@gmail.com'),
+(N'Trương Gia Huy', '2003-12-01', N'Nam', N'Quận 5, TP.HCM', '0965987123', 'huy.truong@gmail.com'),
+(N'Lâm Thảo Nhi', '2000-06-18', N'Nữ', N'Gò Vấp, TP.HCM', '0943210987', 'nhi.lam@gmail.com');
+
+-- 9. Thẻ độc giả
+INSERT INTO TheDocGia (MaDocGia, NgayCap, NgayHetHan, LePhi, TrangThai) VALUES
+(1, '2024-01-01', '2025-01-01', 50000, 1),
+(2, '2024-02-15', '2025-02-15', 50000, 1),
+(3, '2024-03-01', '2025-03-01', 50000, 1),
+(4, '2023-01-01', '2024-01-01', 50000, 0);
+
+-- 10. Phiếu mượn
+INSERT INTO PhieuMuon (MaThe, MaNhanVien, NgayMuon, HanTra, TrangThai) VALUES
+(1, 1, '2024-04-01 09:00:00', '2024-04-15 09:00:00', N'Đã trả đủ'),
+(2, 2, '2024-04-10 10:30:00', '2024-04-24 10:30:00', N'Đang mượn'),
+(3, 1, '2024-03-01 14:00:00', '2024-03-15 14:00:00', N'Quá hạn'),
+(1, 3, '2024-04-20 16:00:00', '2024-05-04 16:00:00', N'Đang mượn');
+
+-- 11. Chi tiết phiếu mượn
+INSERT INTO ChiTietPhieuMuon (MaPhieuMuon, MaCuonSach, NgayTraThucTe, TinhTrangSachKhiMuon, TinhTrangSachKhiTra) VALUES
+(1, 1, '2024-04-14 15:00:00', N'Mới', N'Bình thường'),
+(2, 2, NULL, N'Cũ', NULL),
+(3, 4, NULL, N'Mới', NULL),
+(4, 6, NULL, N'Mới', NULL);
+
+-- 12. Phiếu phạt
+INSERT INTO PhieuPhat (MaPhieuMuon, MaNhanVien, NgayLap, NoiDungPhat, TongTienPhat, TrangThaiThanhToan) VALUES
+(3, 1, '2024-03-20 09:00:00', N'Trễ hạn mượn sách 5 ngày', 25000, 0),
+(1, 2, '2024-04-14 15:10:00', N'Làm rách trang cuối cuốn sách', 10000, 1),
+(3, 1, '2024-03-25 10:00:00', N'Phí bảo quản do trả sách trễ hạn nghiêm trọng', 50000, 0),
+(1, 3, '2024-04-14 15:15:00', N'Làm bẩn bìa sách nhẹ', 5000, 1);
+GO
+--4 Views
+-- View 1: Danh mục sách đầy đủ kèm thể loại, NXB và danh sách tác giả
+CREATE OR ALTER VIEW vw_ThongTinDauSachChiTiet
+AS
+SELECT 
+    ds.MaDauSach,
+    ds.TenDauSach,
+    tl.TenTheLoai,
+    nxb.TenNhaXuatBan,
+    ds.NamXuatBan,
+    STRING_AGG(tg.TenTacGia, ', ') AS DanhSachTacGia,
+    COUNT(cs.MaCuonSach) AS TongSoBanSao,
+    SUM(CASE WHEN cs.TrangThaiMuon = N'Có sẵn' THEN 1 ELSE 0 END) AS SoBanSanSang
+FROM DauSach ds
+LEFT JOIN TheLoai tl ON ds.MaTheLoai = tl.MaTheLoai
+LEFT JOIN NhaXuatBan nxb ON ds.MaNhaXuatBan = nxb.MaNhaXuatBan
+LEFT JOIN Sach_TacGia stg ON ds.MaDauSach = stg.MaDauSach
+LEFT JOIN TacGia tg ON stg.MaTacGia = tg.MaTacGia
+LEFT JOIN CuonSach cs ON ds.MaDauSach = cs.MaDauSach
+GROUP BY 
+    ds.MaDauSach, ds.TenDauSach, tl.TenTheLoai, nxb.TenNhaXuatBan, ds.NamXuatBan;
+GO
+-- Test View 1: Xem thông tin đầy đủ các đầu sách, NXB, danh sách tác giả và số bản khả dụng
+SELECT * FROM vw_ThongTinDauSachChiTiet;
+Go
+-- View 2: Danh sách các phiếu mượn đang quá hạn và độc giả tương ứng
+CREATE OR ALTER VIEW vw_SachMuonQuaHan
+AS
+SELECT 
+    pm.MaPhieuMuon,
+    dg.HoTen AS TenDocGia,
+    dg.SoDienThoai,
+    dg.Email,
+    ds.TenDauSach,
+    cs.MaCuonSach,
+    pm.NgayMuon,
+    pm.HanTra,
+    DATEDIFF(DAY, pm.HanTra, GETDATE()) AS SoNgayQuaHan
+FROM PhieuMuon pm
+JOIN TheDocGia tdg ON pm.MaThe = tdg.MaThe
+JOIN DocGia dg ON tdg.MaDocGia = dg.MaDocGia
+JOIN ChiTietPhieuMuon ct ON pm.MaPhieuMuon = ct.MaPhieuMuon
+JOIN CuonSach cs ON ct.MaCuonSach = cs.MaCuonSach
+JOIN DauSach ds ON cs.MaDauSach = ds.MaDauSach
+WHERE ct.NgayTraThucTe IS NULL 
+  AND GETDATE() > pm.HanTra;
+GO
+-- Test View 2: Xem các lượt mượn sách đang bị trễ hạn cùng thông tin độc giả
+SELECT * FROM vw_SachMuonQuaHan;
+Go
+-- View 3: Lịch sử mượn trả chi tiết của độc giả
+CREATE OR ALTER VIEW vw_LichSuMuonTra
+AS
+SELECT 
+    ct.MaChiTiet,
+    pm.MaPhieuMuon,
+    dg.HoTen AS TenDocGia,
+    tdg.MaThe,
+    ds.TenDauSach,
+    cs.MaCuonSach,
+    pm.NgayMuon,
+    pm.HanTra,
+    ct.NgayTraThucTe,
+    nv.HoTen AS NhanVienLapPhieu,
+    CASE 
+        WHEN ct.NgayTraThucTe IS NOT NULL THEN N'Đã trả'
+        WHEN GETDATE() > pm.HanTra THEN N'Quá hạn chưa trả'
+        ELSE N'Đang mượn'
+    END AS TrangThaiHienTai
+FROM ChiTietPhieuMuon ct
+JOIN PhieuMuon pm ON ct.MaPhieuMuon = pm.MaPhieuMuon
+JOIN TheDocGia tdg ON pm.MaThe = tdg.MaThe
+JOIN DocGia dg ON tdg.MaDocGia = dg.MaDocGia
+JOIN CuonSach cs ON ct.MaCuonSach = cs.MaCuonSach
+JOIN DauSach ds ON cs.MaDauSach = ds.MaDauSach
+JOIN NhanVien nv ON pm.MaNhanVien = nv.MaNhanVien;
+GO
+-- Test View 3: Xem toàn bộ lịch sử và trạng thái mượn trả
+SELECT * FROM vw_LichSuMuonTra;
+Go
+-- View 4: Thống kê tiền phạt chưa thanh toán theo độc giả
+CREATE OR ALTER VIEW vw_ThongKePhatChuaThu
+AS
+SELECT 
+    dg.MaDocGia,
+    dg.HoTen AS TenDocGia,
+    dg.SoDienThoai,
+    COUNT(pp.MaPhieuPhat) AS SoLanPhatChuaTra,
+    SUM(pp.TongTienPhat) AS TongTienNoPhat
+FROM PhieuPhat pp
+JOIN PhieuMuon pm ON pp.MaPhieuMuon = pm.MaPhieuMuon
+JOIN TheDocGia tdg ON pm.MaThe = tdg.MaThe
+JOIN DocGia dg ON tdg.MaDocGia = dg.MaDocGia
+WHERE pp.TrangThaiThanhToan = 0
+GROUP BY dg.MaDocGia, dg.HoTen, dg.SoDienThoai;
+GO
+-- Test View 4: Xem danh sách độc giả còn nợ tiền phạt chưa nộp
+SELECT * FROM vw_ThongKePhatChuaThu;
+GO
+-- Chạy định kỳ: phiếu đang mượn, còn sách chưa trả, đã quá hạn -> 'Quá hạn'
+UPDATE pm
+SET TrangThai = N'Quá hạn'
+FROM PhieuMuon pm
+WHERE pm.TrangThai = N'Đang mượn'
+  AND pm.HanTra < GETDATE()
+  AND EXISTS (
+      SELECT 1
+      FROM ChiTietPhieuMuon ct
+      WHERE ct.MaPhieuMuon = pm.MaPhieuMuon
+        AND ct.NgayTraThucTe IS NULL
+  );
+GO
+-- Stored Procedure 1: Mượn sách an toàn (sử dụng Transaction kiểm soát nghiệp vụ)
+CREATE OR ALTER PROCEDURE sp_TaoPhieuMuon
+    @MaThe INT,
+    @MaNhanVien INT,
+    @MaCuonSach INT,
+    @SoNgayMuon INT = 14
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- 1. Kiểm tra sách có sẵn không
+        IF NOT EXISTS (SELECT 1 FROM CuonSach WHERE MaCuonSach = @MaCuonSach AND TrangThaiMuon = N'Có sẵn')
+        BEGIN
+            RAISERROR(N'Cuốn sách này không có sẵn để mượn!', 16, 1);
+        END
+
+        -- 2. Tạo phiếu mượn
+        DECLARE @MaPhieuMuon INT;
+        DECLARE @HanTra DATETIME = DATEADD(DAY, @SoNgayMuon, GETDATE());
+
+        INSERT INTO PhieuMuon (MaThe, MaNhanVien, NgayMuon, HanTra, TrangThai)
+        VALUES (@MaThe, @MaNhanVien, GETDATE(), @HanTra, N'Đang mượn');
+
+        SET @MaPhieuMuon = SCOPE_IDENTITY();
+
+        -- 3. Thêm chi tiết (Trigger trg_CapNhatTrangThaiMuonSach sẽ cập nhật CuonSach thành 'Đang mượn')
+        INSERT INTO ChiTietPhieuMuon (MaPhieuMuon, MaCuonSach, TinhTrangSachKhiMuon)
+        VALUES (@MaPhieuMuon, @MaCuonSach, N'Bình thường');
+
+        COMMIT TRANSACTION;
+        PRINT N'Tạo phiếu mượn thành công. Mã phiếu: ' + CAST(@MaPhieuMuon AS VARCHAR(10));
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH
+END;
+GO
+-- Test Procedure 1: Tạo phiếu mượn mới thông qua Stored Procedure
+-- 1. Cập nhật hạn thẻ cho tất cả các thẻ đang hoạt động (ví dụ cộng thêm 5 năm kể từ hôm nay)
+UPDATE TheDocGia
+SET NgayHetHan = DATEADD(YEAR, 5, CAST(GETDATE() AS DATE))
+WHERE TrangThai = 1;
+GO
+
+-- 2. Chạy lại Procedure mượn sách
+EXEC sp_TaoPhieuMuon 
+    @MaThe = 1, 
+    @MaNhanVien = 1, 
+    @MaCuonSach = 7, 
+    @SoNgayMuon = 14;
+GO
+
+-- 3. Xem kết quả phiếu mượn vừa tạo
+SELECT TOP 1 * FROM PhieuMuon ORDER BY MaPhieuMuon DESC;
+GO
+-- Stored Procedure 2: Trả sách và tự động tạo phiếu phạt nếu trả quá hạn
+CREATE OR ALTER PROCEDURE sp_TraSach
+    @MaPhieuMuon INT,
+    @MaCuonSach INT,
+    @MaNhanVien INT,
+    @TinhTrangKhiTra NVARCHAR(100) = N'Bình thường'
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        DECLARE @HanTra DATETIME;
+        DECLARE @NgayHienTai DATETIME = GETDATE();
+
+        SELECT @HanTra = HanTra FROM PhieuMuon WHERE MaPhieuMuon = @MaPhieuMuon;
+
+        IF @HanTra IS NULL
+        BEGIN
+            RAISERROR(N'Phiếu mượn không tồn tại!', 16, 1);
+        END
+
+        -- Cập nhật ngày trả thực tế
+        UPDATE ChiTietPhieuMuon
+        SET NgayTraThucTe = @NgayHienTai,
+            TinhTrangSachKhiTra = @TinhTrangKhiTra
+        WHERE MaPhieuMuon = @MaPhieuMuon AND MaCuonSach = @MaCuonSach;
+
+        -- Nếu trả trễ hạn, phạt 5,000 VND / ngày trễ
+        IF @NgayHienTai > @HanTra
+        BEGIN
+            DECLARE @SoNgayTre INT = DATEDIFF(DAY, @HanTra, @NgayHienTai);
+            DECLARE @TienPhat DECIMAL(18,2) = @SoNgayTre * 5000;
+
+            INSERT INTO PhieuPhat (MaPhieuMuon, MaNhanVien, NgayLap, NoiDungPhat, TongTienPhat, TrangThaiThanhToan)
+            VALUES (@MaPhieuMuon, @MaNhanVien, @NgayHienTai, 
+                    N'Trả trễ hạn ' + CAST(@SoNgayTre AS VARCHAR(10)) + N' ngày', @TienPhat, 0);
+        END
+
+        COMMIT TRANSACTION;
+        PRINT N'Xử lý trả sách hoàn tất.';
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH
+END;
+GO
+-- Test Procedure 2: Trả sách và tự phạt nếu trễ hạn
+-- Phiếu mượn 3 (hạn trả 15/03/2024, đã quá hạn) trả sách mã 4
+EXEC sp_TraSach 
+    @MaPhieuMuon = 3, 
+    @MaCuonSach = 4, 
+    @MaNhanVien = 2, 
+    @TinhTrangKhiTra = N'Nguyên vẹn';
+
+-- Kiểm tra phiếu phạt mới vừa được tự động sinh ra do trả trễ hạn
+SELECT TOP 1 * FROM PhieuPhat ORDER BY MaPhieuPhat DESC;
+GO
+-- Stored Procedure 3: Cấp mới hoặc gia hạn thẻ độc giả thêm số tháng chỉ định
+CREATE OR ALTER PROCEDURE sp_GiaHanTheDocGia
+    @MaThe INT,
+    @SoThangGiaHan INT = 12,
+    @LePhi DECIMAL(18,2) = 50000
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM TheDocGia WHERE MaThe = @MaThe)
+    BEGIN
+        RAISERROR(N'Thẻ độc giả không tồn tại!', 16, 1);
+        RETURN;
+    END
+
+    UPDATE TheDocGia
+    SET NgayHetHan = DATEADD(MONTH, @SoThangGiaHan, 
+                        CASE WHEN NgayHetHan > CAST(GETDATE() AS DATE) 
+                             THEN NgayHetHan 
+                             ELSE CAST(GETDATE() AS DATE) 
+                        END),
+        LePhi = LePhi + @LePhi,
+        TrangThai = 1
+    WHERE MaThe = @MaThe;
+
+    PRINT N'Gia hạn thẻ thành công.';
+END;
+GO
+-- Test Procedure 3: Gia hạn thẻ độc giả thêm 6 tháng và tăng lệ phí
+-- Gia hạn thẻ số 4 (thẻ đã hết hạn)
+EXEC sp_GiaHanTheDocGia 
+    @MaThe = 4, 
+    @SoThangGiaHan = 6, 
+    @LePhi = 30000;
+
+-- Xem thông tin thẻ sau gia hạn (TrangThai = 1, NgayHetHan được cộng thêm)
+SELECT * FROM TheDocGia WHERE MaThe = 4;
+GO
+-- Stored Procedure 4: Thống kê số lượng sách được mượn theo từng thể loại trong năm chỉ định
+CREATE OR ALTER PROCEDURE sp_ThongKeMuonSachTheoTheLoai
+    @Nam INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT 
+        tl.MaTheLoai,
+        tl.TenTheLoai,
+        COUNT(ct.MaChiTiet) AS SoLuotMuon
+    FROM TheLoai tl
+    LEFT JOIN DauSach ds ON tl.MaTheLoai = ds.MaTheLoai
+    LEFT JOIN CuonSach cs ON ds.MaDauSach = cs.MaDauSach
+    LEFT JOIN ChiTietPhieuMuon ct ON cs.MaCuonSach = ct.MaCuonSach
+    LEFT JOIN PhieuMuon pm ON ct.MaPhieuMuon = pm.MaPhieuMuon AND YEAR(pm.NgayMuon) = @Nam
+    GROUP BY tl.MaTheLoai, tl.TenTheLoai
+    ORDER BY SoLuotMuon DESC;
+END;
+GO
+-- Test Procedure 4: Thống kê số lượt mượn theo thể loại trong năm 2024
+EXEC sp_ThongKeMuonSachTheoTheLoai @Nam = 2024;
+GO
+--4 Funtion
+-- Function 1 (Scalar): Đếm số sách đang mượn của một độc giả
+CREATE OR ALTER FUNCTION fn_DemSachDangMuon (@MaDocGia INT)
+RETURNS INT
+AS
+BEGIN
+    DECLARE @SoLuong INT;
+
+    SELECT @SoLuong = COUNT(ct.MaChiTiet)
+    FROM ChiTietPhieuMuon ct
+    JOIN PhieuMuon pm ON ct.MaPhieuMuon = pm.MaPhieuMuon
+    JOIN TheDocGia tdg ON pm.MaThe = tdg.MaThe
+    WHERE tdg.MaDocGia = @MaDocGia
+      AND ct.NgayTraThucTe IS NULL;
+
+    RETURN ISNULL(@SoLuong, 0);
+END;
+GO
+-- Test Function 1: Đếm số sách đang mượn chưa trả của độc giả mã 1 và độc giả mã 3
+SELECT 
+    MaDocGia, 
+    HoTen, 
+    dbo.fn_DemSachDangMuon(MaDocGia) AS SoSachDangMuon
+FROM DocGia;
+GO
+-- Function 2 (Scalar): Tính tổng tiền phạt chưa nộp của một độc giả
+CREATE OR ALTER FUNCTION fn_TinhTienPhatChuaNop (@MaDocGia INT)
+RETURNS DECIMAL(18,2)
+AS
+BEGIN
+    DECLARE @TongTien DECIMAL(18,2);
+
+    SELECT @TongTien = SUM(pp.TongTienPhat)
+    FROM PhieuPhat pp
+    JOIN PhieuMuon pm ON pp.MaPhieuMuon = pm.MaPhieuMuon
+    JOIN TheDocGia tdg ON pm.MaThe = tdg.MaThe
+    WHERE tdg.MaDocGia = @MaDocGia
+      AND pp.TrangThaiThanhToan = 0;
+
+    RETURN ISNULL(@TongTien, 0);
+END;
+GO
+-- Test Function 2: Tính tổng tiền phạt chưa nộp của độc giả mã 3
+SELECT dbo.fn_TinhTienPhatChuaNop(3) AS TienPhatDocGia3;
+GO
+-- Function 3 (Inline Table-Valued): Tra cứu sách có sẵn theo từ khóa tên sách/tác giả
+CREATE OR ALTER FUNCTION fn_TraCuuSachKhaDung (@TuKhoa NVARCHAR(100))
+RETURNS TABLE
+AS
+RETURN (
+    SELECT 
+        ds.MaDauSach,
+        ds.TenDauSach,
+        tl.TenTheLoai,
+        cs.MaCuonSach,
+        cs.TinhTrang,
+        cs.TrangThaiMuon
+    FROM DauSach ds
+    JOIN CuonSach cs ON ds.MaDauSach = cs.MaDauSach
+    LEFT JOIN TheLoai tl ON ds.MaTheLoai = tl.MaTheLoai
+    WHERE cs.TrangThaiMuon = N'Có sẵn'
+      AND ds.TenDauSach LIKE N'%' + @TuKhoa + N'%'
+);
+GO
+-- Test Function 3: Tìm kiếm các cuốn sách đang có sẵn chứa từ khóa 'Clean' hoặc 'Tâm'
+SELECT * FROM dbo.fn_TraCuuSachKhaDung(N'Clean');
+SELECT * FROM dbo.fn_TraCuuSachKhaDung(N'Tâm');
+GO
+-- Function 4 (Table-Valued): Báo cáo chi tiết mượn sách theo khoảng thời gian
+CREATE OR ALTER FUNCTION fn_BaoCaoMuonSachTheoKhoangTG (
+    @TuNgay DATETIME, 
+    @DenNgay DATETIME
+)
+RETURNS TABLE
+AS
+RETURN (
+    SELECT 
+        pm.MaPhieuMuon,
+        dg.HoTen AS TenDocGia,
+        ds.TenDauSach,
+        pm.NgayMuon,
+        pm.HanTra,
+        ct.NgayTraThucTe,
+        pm.TrangThai AS TrangThaiPhieu
+    FROM PhieuMuon pm
+    JOIN TheDocGia tdg ON pm.MaThe = tdg.MaThe
+    JOIN DocGia dg ON tdg.MaDocGia = dg.MaDocGia
+    JOIN ChiTietPhieuMuon ct ON pm.MaPhieuMuon = ct.MaPhieuMuon
+    JOIN CuonSach cs ON ct.MaCuonSach = cs.MaCuonSach
+    JOIN DauSach ds ON cs.MaDauSach = ds.MaDauSach
+    WHERE pm.NgayMuon BETWEEN @TuNgay AND @DenNgay
+);
+GO
+-- Test Function 4: Báo cáo tình hình mượn sách từ ngày 01/01/2024 đến 31/12/2024
+SELECT * FROM dbo.fn_BaoCaoMuonSachTheoKhoangTG('2024-01-01', '2024-12-31');
+GO
+-- Trigger 1: Tự động đổi trạng thái cuốn sách thành 'Đang mượn' khi thêm vào ChiTietPhieuMuon
+CREATE OR ALTER TRIGGER trg_CapNhatTrangThaiMuonSach
+ON ChiTietPhieuMuon
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Kiểm tra nếu sách đang mượn hoặc đã mất thì hủy thao tác
+    IF EXISTS (
+        SELECT 1 
+        FROM CuonSach cs 
+        JOIN inserted i ON cs.MaCuonSach = i.MaCuonSach
+        WHERE cs.TrangThaiMuon <> N'Có sẵn'
+    )
+    BEGIN
+        RAISERROR(N'Cuốn sách được chọn hiện không có sẵn để mượn!', 16, 1);
+        ROLLBACK TRANSACTION;
+        RETURN;
+    END
+
+    UPDATE CuonSach
+    SET TrangThaiMuon = N'Đang mượn'
+    WHERE MaCuonSach IN (SELECT MaCuonSach FROM inserted);
+END;
+GO
+--test
+--Lệnh kiểm tra trước khi thử nghiệm:
+SELECT MaCuonSach, MaDauSach, TrangThaiMuon
+FROM CuonSach
+WHERE MaCuonSach = 8;                      
+SELECT COUNT(*) AS SoDongChiTietCuaSach8
+FROM ChiTietPhieuMuon
+WHERE MaCuonSach = 8;                    
+GO
+--Lệnh chạy thử nghiệm:
+BEGIN TRAN;
+ 
+DECLARE @MaPM INT;
+INSERT INTO PhieuMuon (MaThe, MaNhanVien, NgayMuon, HanTra, TrangThai)
+VALUES (1, 1, GETDATE(), DATEADD(DAY, 14, GETDATE()), N'Đang mượn');
+SET @MaPM = SCOPE_IDENTITY();
+ 
+-- Thao tác kích hoạt Trigger 1
+INSERT INTO ChiTietPhieuMuon (MaPhieuMuon, MaCuonSach, TinhTrangSachKhiMuon)
+VALUES (@MaPM, 8, N'Mới');
+ 
+-- Kết quả ngay sau khi trigger chạy (mong đợi: 'Đang mượn')
+SELECT MaCuonSach,
+       N'Có sẵn'     AS TrangThaiTruoc,
+       TrangThaiMuon AS TrangThaiSauKhiTriggerChay
+FROM CuonSach
+WHERE MaCuonSach = 8;
+ 
+ROLLBACK TRAN;
+GO
+-- Trigger 2: Khi cập nhật ngày trả thực tế, trả trạng thái cuốn sách về 'Có sẵn'
+CREATE OR ALTER TRIGGER trg_CapNhatTrangThaiTraSach
+ON ChiTietPhieuMuon
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF UPDATE(NgayTraThucTe)
+    BEGIN
+        UPDATE cs
+        SET cs.TrangThaiMuon = N'Có sẵn'
+        FROM CuonSach cs
+        JOIN inserted i ON cs.MaCuonSach = i.MaCuonSach
+        JOIN deleted d ON i.MaChiTiet = d.MaChiTiet
+        WHERE i.NgayTraThucTe IS NOT NULL AND d.NgayTraThucTe IS NULL;
+    END
+END;
+GO
+--test
+--Lệnh chạy trước thử nghiệm:
+SELECT cs.MaCuonSach, cs.TrangThaiMuon, ct.MaPhieuMuon, ct.NgayTraThucTe
+FROM CuonSach cs
+JOIN ChiTietPhieuMuon ct ON cs.MaCuonSach = ct.MaCuonSach
+WHERE ct.MaPhieuMuon = 4 AND ct.MaCuonSach = 6;
+--Lệnh chạy thử nghiệm:
+BEGIN TRAN;
+ 
+DECLARE @TrangThaiTruoc NVARCHAR(50);
+SELECT @TrangThaiTruoc = TrangThaiMuon FROM CuonSach WHERE MaCuonSach = 6;
+ 
+-- Thao tác kích hoạt Trigger 2
+UPDATE ChiTietPhieuMuon
+SET NgayTraThucTe = GETDATE(),
+    TinhTrangSachKhiTra = N'Nguyên vẹn'
+WHERE MaPhieuMuon = 4 AND MaCuonSach = 6;
+ 
+-- Kết quả ngay sau khi trigger chạy (mong đợi: 'Có sẵn')
+SELECT cs.MaCuonSach,
+       @TrangThaiTruoc    AS TrangThaiTruocKhiTra,
+       cs.TrangThaiMuon   AS TrangThaiSauKhiTriggerChay,
+       ct.NgayTraThucTe
+FROM CuonSach cs
+JOIN ChiTietPhieuMuon ct ON cs.MaCuonSach = ct.MaCuonSach
+WHERE ct.MaPhieuMuon = 4 AND ct.MaCuonSach = 6;
+ 
+ROLLBACK TRAN;
+GO
+-- Trigger 3: Ngăn không cho lập phiếu mượn nếu thẻ đã hết hạn hoặc bị khóa
+CREATE OR ALTER TRIGGER trg_KiemTraTheKhiLapPhieu
+ON PhieuMuon
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (
+        SELECT 1 
+        FROM inserted i
+        JOIN TheDocGia tdg ON i.MaThe = tdg.MaThe
+        WHERE tdg.TrangThai = 0 OR tdg.NgayHetHan < CAST(GETDATE() AS DATE)
+    )
+    BEGIN
+        RAISERROR(N'Không thể lập phiếu mượn: Thẻ độc giả đã bị khóa hoặc đã hết hạn!', 16, 1);
+        ROLLBACK TRANSACTION;
+        RETURN;
+    END
+END;
+GO
+--test
+--Lệnh chạy trước thử nghiệm:
+SELECT MaThe, TrangThai, NgayHetHan
+FROM TheDocGia
+WHERE MaThe = 4;
+SELECT COUNT(*) AS SoPhieuCuaThe4
+FROM PhieuMuon
+WHERE MaThe = 4;                         
+GO
+--lệnh chạy sau thử nghiệm
+BEGIN TRAN;
+ 
+-- Khóa tạm thẻ 4 (sẽ được hoàn tác)
+UPDATE TheDocGia SET TrangThai = 0 WHERE MaThe = 4;
+ 
+BEGIN TRY
+    -- Thao tác kích hoạt Trigger 3
+    INSERT INTO PhieuMuon (MaThe, MaNhanVien, NgayMuon, HanTra, TrangThai)
+    VALUES (4, 1, GETDATE(), DATEADD(DAY, 14, GETDATE()), N'Đang mượn');
+ 
+    PRINT N'>>> KHÔNG BỊ CHẶN - Trigger 3 chưa hoạt động đúng!';
+END TRY
+BEGIN CATCH
+    PRINT N'>>> ĐÃ BỊ CHẶN . Thông báo: ' + ERROR_MESSAGE();
+END CATCH;
+ 
+IF @@TRANCOUNT > 0
+    ROLLBACK TRAN;
+GO
+-- Trigger 4: Tự động đổi trạng thái Phiếu mượn thành 'Đã trả đủ' khi mọi cuốn sách trong phiếu đã có ngày trả
+CREATE OR ALTER TRIGGER trg_DongPhieuMuonKhiTraHet
+ON ChiTietPhieuMuon
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE pm
+    SET TrangThai = N'Đã trả đủ'
+    FROM PhieuMuon pm
+    WHERE pm.MaPhieuMuon IN (SELECT DISTINCT MaPhieuMuon FROM inserted)
+      AND NOT EXISTS (
+          SELECT 1 
+          FROM ChiTietPhieuMuon ct 
+          WHERE ct.MaPhieuMuon = pm.MaPhieuMuon 
+            AND ct.NgayTraThucTe IS NULL
+      );
+END;
+GO
+--test
+--lệnh chạy thử nghiệm
+SELECT MaPhieuMuon, MaThe, HanTra, TrangThai
+FROM PhieuMuon
+WHERE MaPhieuMuon = 4;                     
+SELECT MaChiTiet, MaCuonSach, NgayTraThucTe
+FROM ChiTietPhieuMuon
+WHERE MaPhieuMuon = 4;                     
+GO
+--lệnh chạy thử
+BEGIN TRAN;
+ 
+DECLARE @TrangThaiTruoc NVARCHAR(50);
+SELECT @TrangThaiTruoc = TrangThai FROM PhieuMuon WHERE MaPhieuMuon = 4;
+ 
+-- Thao tác kích hoạt Trigger 4
+UPDATE ChiTietPhieuMuon
+SET NgayTraThucTe = GETDATE(),
+    TinhTrangSachKhiTra = N'Tốt'
+WHERE MaPhieuMuon = 4;
+ 
+-- Kết quả ngay sau khi trigger chạy (mong đợi: 'Đã trả đủ')
+SELECT MaPhieuMuon,
+       @TrangThaiTruoc AS TrangThaiPhieuBanDau,
+       TrangThai       AS TrangThaiPhieuSauKhiTriggerChay
+FROM PhieuMuon
+WHERE MaPhieuMuon = 4;
+ 
+ROLLBACK TRAN;
+GO
